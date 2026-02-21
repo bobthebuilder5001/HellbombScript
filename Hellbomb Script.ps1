@@ -1076,7 +1076,7 @@ Function Show-GameLaunchOptions {
     }
 
     $localconfigData = Get-Content -Path $script:localconfigVDF -Raw
-    $ParsedConfig = Parse-VDF $localconfigData
+    $ParsedConfig = Read-VDF $localconfigData
     $HD2ConfigData = $ParsedConfig["UserLocalConfigStore"]["Software"]["Valve"]["Steam"]["apps"][$script:AppID.ToString()]
     if($null -eq $HD2ConfigData)
     {
@@ -2714,7 +2714,7 @@ Function Invoke-HD2StatusChecks {
     Pause
 }
 
-Function Create-Menu
+Function New-Menu
 {
     Param(
         [string]$Title,
@@ -2771,7 +2771,7 @@ Function MainMenu
         @{ Label="❌  E|x|it";                   Hotkey="X"; Action = $null }
     )
 
-    Create-Menu -Title "" -MenuItems $menu
+    New-Menu -Title "" -MenuItems $menu
 }
 Function ClearDataMenu
 {
@@ -2818,7 +2818,7 @@ Function ClearDataMenu
 			OS = 'Any'
         }
     )
-    Create-Menu -Title "🧹 Clear Data Options" -MenuItems $menu
+    New-Menu -Title "🧹 Clear Data Options" -MenuItems $menu
 }
 
 Function GraphicsMenu
@@ -2846,7 +2846,7 @@ Function GraphicsMenu
         }
     )
 
-    Create-Menu -Title "🛠️ Graphics Options" -MenuItems $menu
+    New-Menu -Title "🛠️ Graphics Options" -MenuItems $menu
 }
 Function NetworkMenu
 {
@@ -2872,7 +2872,7 @@ Function NetworkMenu
         }
     )
 
-    Create-Menu -Title "🛜 Network Options" -MenuItems $menu
+    New-Menu -Title "🛜 Network Options" -MenuItems $menu
 }
 Function AudioMenu
 {
@@ -2899,7 +2899,7 @@ Function AudioMenu
         }
     )
 
-    Create-Menu -Title "🔊 Audio Options" -MenuItems $menu
+    New-Menu -Title "🔊 Audio Options" -MenuItems $menu
 }
 Function ResetToggleComponentsMenu
 {
@@ -2947,7 +2947,7 @@ Function ResetToggleComponentsMenu
         }
     )
 
-    Create-Menu -Title "🔊 Reset/Toggle Components" -MenuItems $menu
+    New-Menu -Title "🔊 Reset/Toggle Components" -MenuItems $menu
 }
 Function Show-TestResults {
     $keyDisplayOrderWindows = @(
@@ -3027,7 +3027,7 @@ Function Get-MostRecentlyUsedSteamProfilePath {
         }
     }
 }
-Function Parse-VDF {
+Function Read-VDF {
     param(
         [string]$Content
     )
@@ -3150,7 +3150,7 @@ switch ($script:DetectedOS)
     {
         $LibraryPath = Join-Path $script:SteamPath -ChildPath "steamapps\libraryfolders.vdf"
         $LibraryData = Get-Content -Path $LibraryPath -Raw
-        $ParsedLibrary = Parse-VDF -Content $LibraryData
+        $ParsedLibrary = Read-VDF -Content $LibraryData
 
         ForEach($libraryEntry in $ParsedLibrary["libraryfolders"].GetEnumerator())
         {
@@ -3175,7 +3175,7 @@ switch ($script:DetectedOS)
                 break
             }
 
-            $ParsedGameData = Parse-VDF $GameDataContent
+            $ParsedGameData = Read-VDF $GameDataContent
             $script:BuildID = $ParsedGameData["AppState"]["buildid"]
             Write-Host "Parsed BuildID: $script:BuildID" -ForegroundColor Cyan
             $script:AppInstallPath = [System.IO.Path]::Combine($library["path"], "steamapps\common", $ParsedGameData["AppState"]["installdir"])
