@@ -594,6 +594,41 @@ Function Get-IsProcessRunning {
         Exit
     }
 }
+Function Get-GSyncMode {
+    $regPath  = 'HKLM:\SYSTEM\CurrentControlSet\Services\nvlddmkm\State'
+    $valueName = '0x1194f158'
+
+    # Default result object
+    $result = [ordered]@{
+        Exists = $false
+        RawValue = $null
+        Mode = 'Unknown'
+    }
+
+    # Check if the key exists
+    if (-not (Test-Path $regPath)) {
+        return [pscustomobject]$result
+    }
+
+    # Try to read the value safely
+    try {
+        $raw = Get-ItemProperty -Path $regPath -Name $valueName -ErrorAction Stop
+        $result.Exists = $true
+        $result.RawValue = $raw.$valueName
+    }
+    catch {
+        return [pscustomobject]$result
+    }
+
+    # Interpret the value
+    switch ($result.RawValue) {
+        1 { $result.Mode = 'Fullscreen-only' }
+        2 { $result.Mode = 'Windowed + Fullscreen (All Apps)' }
+        default { $result.Mode = 'Unrecognized' }
+    }
+
+    return [pscustomobject]$result
+}
 Function Uninstall-VCRedist {
     # List of Visual C++ Redistributables to uninstall
     $redistributables = @(
@@ -3205,3 +3240,4 @@ Finally
 {
     $Host.UI.RawUI.CursorPosition = $script:menuEnd
 }
+
