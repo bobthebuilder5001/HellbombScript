@@ -19,9 +19,10 @@ Initialize-OSDetection
 $pshost = Get-Host
 $psWindow = $pshost.UI.RawUI
 # Set the window size (height and width)
-If ( $script:DetectedOS -eq 'Windows' ) { $newWindowSize = $psWindow.WindowSize
-$newWindowSize.Height = 60   # Adjust height as needed
-$psWindow.WindowSize = $newWindowSize }
+If ( $script:DetectedOS -eq 'Windows' )
+{ 
+    $psWindow.WindowSize.Height = $psWindow.BufferSize.Height = 60
+}
 Function Get-HD2ConfigPath {
     Param([switch]$All)
     $appId = 553850
@@ -80,7 +81,7 @@ $script:Tests = @{
         Write-Host "CPU model with unpatched microcode detected!! " -ForegroundColor Yellow -NoNewLine; Write-Host "$script:myCPU" -ForegroundColor White
         Write-Host "$([Environment]::NewLine)        WARNING: If you are NOT currently having stability issues, please update $([Environment]::NewLine)        your motherboard UEFI (BIOS) ASAP to prevent permanent damage to the CPU." -ForegroundColor Yellow
         Write-Host "$([Environment]::NewLine)        If you ARE experiencing stability issues, your CPU may be unstable$([Environment]::NewLine)        and permanently damaged." -ForegroundColor Red
-        Write-Host "$([Environment]::NewLine)        For more information, visit: $([Environment]::NewLine)        https://www.theverge.com/2024/7/26/24206529/intel-13th-14th-gen-crashing-instability-cpu-voltage-q-a" -ForegroundColor Cyan
+        Write-Host "$([Environment]::NewLine)        For more information, visit: $([Environment]::NewLine)        https://www.tomsguide.com/computing/hardware/13th-and-14th-gen-intel-cpu-damage-could-be-permanent-despite-incoming-fix" -ForegroundColor Cyan
         Pause "$([Environment]::NewLine)        Any proposed fixes by this tool may fail to work if your CPU is damaged.$([Environment]::NewLine)Press [SPACEBAR] to continue..." -ForegroundColor Yellow
 '@
         'TestPassedIntelMsg' = @'
@@ -206,14 +207,25 @@ $script:Tests = @{
     "FirewallRules" = @{
         'TestPassed' = $null
         'Rules' = @(
-            [PSCustomObject]@{ RuleName = 'Inbound TCP Rule'; PassedTest = $null },
-            [PSCustomObject]@{ RuleName = 'Inbound UDP Rule'; PassedTest = $null }
+            [PSCustomObject]@{ RuleName = 'Inbound TCP Rule'; PassedTest = $null; CorrectName = $null }
+            [PSCustomObject]@{ RuleName = 'Inbound UDP Rule'; PassedTest = $null; CorrectName = $null }
         )
         'TestFailMsg' = @'
-        Write-Host "$([Environment]::NewLine)[FAIL] " -ForegroundColor Red -NoNewLine
-        Write-Host "The Windows Firewall is missing the following required rules: " -ForegroundColor Yellow
-        $script:Tests.FirewallRules.Rules | Where-Object {$_.PassedTest -ne $true } | ForEach-Object { "       Helldivers 2 $($_.Rulename)" } | Write-Host -ForegroundColor White
-        Start-Process wf.msc
+        $rulesPassed = -not ($script:Tests.FirewallRules.Rules | Where-Object {$_.PassedTest -ne $true })
+        $namesPassed = -not ($script:Tests.FirewallRules.Rules | Where-Object {$_.CorrectName -eq $false })
+        if($rulesPassed -eq $false)
+        {
+            Write-Host "$([Environment]::NewLine)[FAIL] " -ForegroundColor Red -NoNewLine
+            Write-Host "The Windows Firewall is missing the following required rules: " -ForegroundColor Yellow
+            $script:Tests.FirewallRules.Rules | Where-Object {$_.PassedTest -ne $true } | ForEach-Object { "       Helldivers 2 $($_.Rulename)" } | Write-Host -ForegroundColor White
+            Start-Process wf.msc
+        }
+        if($namesPassed -eq $false)
+        {
+            Write-Host "$([Environment]::NewLine)[WARN] " -ForegroundColor Yellow -NoNewLine
+            Write-Host "The following Windows Firewall rules do not have the correct name:" -ForegroundColor Yellow
+            $script:Tests.FirewallRules.Rules | Where-Object {$_.CorrectName -ne $true -and $_.PassedTest -eq $true } | ForEach-Object { "       Helldivers 2 $($_.Rulename)" } | Write-Host -ForegroundColor White
+        }
 '@
     }
 "GameMods" = @{
@@ -330,7 +342,7 @@ $script:Tests = @{
     'TestPassed' = $null
     'TestFailMsg' = @'
     Write-Host "$([Environment]::NewLine)[FAIL] " -ForegroundColor Red -NoNewLine
-    Write-Host "Drive has less than 150GB of free space. This may cause updates to fail."
+    Write-Host "Drive has less than 30GB of free space. This may cause updates to fail."
 '@
     }
 "USBGameDrive" = @{
@@ -360,8 +372,8 @@ $script:Tests = @{
     'TestPassed' = $null
     'selectedBranch' = $null
     'TestFailMsg' = @'
-    Write-Host "$([Environment]::NewLine)[INFO] " -NoNewLine
-    Write-Host "Beta branch ($($script:Tests.BetaBranchActive.selectedBranch)) is active."
+    Write-Host "$([Environment]::NewLine)[FAIL] " -NoNewLine -ForegroundColor Red
+    Write-Host "Beta branch ($($script:Tests.BetaBranchActive.selectedBranch)) is active. All branches but 'public'/default will no longer recieve updates." -ForegroundColor Yellow
 '@
     }
 }
@@ -860,25 +872,45 @@ Function Show-MotherboardInfo {
     }
 }
 Function Show-ISPInfo {
-	Try {
-	    $ipInfo = Invoke-RestMethod -Uri "http://ip-api.com/json" -ErrorAction Stop
-	}
-	Catch {
-	    Write-Host "Error: Could not retrieve ISP."
-	    Return
-	}
-	# Check if the query was successful and has a status of 'success'
-	If ($ipInfo.status -eq "success") {
-	    $asn = ($ipInfo.as -split " ")[0]
-	    $isp = $ipInfo.isp
-	        Write-Host 'Your ISP is: ' -NoNewLine -ForegroundColor Cyan
-		 	Write-Host $($isp)
-	        Write-Host 'Your ASN is: ' -NoNewLine -ForegroundColor Cyan
-		 	Write-Host $($asn)
-	    }
-	Else {
-	    Write-Host "Could not retrieve ISP information. The service returned an error: $($ipInfo.message)" -ForegroundColor Yellow
-	}
+    Try {
+        $ipInfo = Invoke-RestMethod -Uri "http://ip-api.com/json" -ErrorAction Stop -UseBasicParsing
+    }
+    Catch {
+        Write-Host "Error: Could not retrieve ISP." -ForegroundColor Red
+        Return
+    }
+    If ($ipInfo.status -ne "success") {
+        Write-Host "Could not retrieve ISP information. The service returned an error: $($ipInfo.message)" -ForegroundColor Yellow
+        Return
+    }
+    # Extract ASN and ISP
+    $asn = ($ipInfo.as -split " ")[0] -replace "^AS",""
+    $isp = $ipInfo.isp
+    Write-Host "Your ISP is: " -NoNewLine -ForegroundColor Cyan
+    Write-Host $isp
+    Write-Host "Your ASN is: " -NoNewLine -ForegroundColor Cyan
+    Write-Host $asn
+    # --- Spamhaus ASN DROP check ---
+    Try {
+        $raw = Invoke-WebRequest "https://www.spamhaus.org/drop/asndrop.json" -UseBasicParsing
+        # PowerShell Core returns bytes; convert to string safely
+        $content = $raw.Content | ForEach-Object { $_.ToString() }
+        # Parse NDJSON (one JSON object per line)
+        $asnDrop = $content -split "`n" |
+            Where-Object { $_.Trim() -ne "" } |
+            ForEach-Object { $_ | ConvertFrom-Json }
+    }
+    Catch {
+        Write-Host "Warning: Could not retrieve Spamhaus ASN DROP list." -ForegroundColor Yellow
+        Return
+    }
+    $isListed = $asnDrop | Where-Object { (Get-Member -InputObject $_ -Name "asn" -MemberType Properties) -and $_.asn -eq [int]$asn }
+    If ($isListed) {
+        Write-Host "⚠ WARNING: Your ASN ($asn) appears in the Spamhaus ASN DROP list!" -ForegroundColor Red
+    }
+    Else {
+        Write-Host "Your ASN is NOT listed in the Spamhaus ASN DROP list." -ForegroundColor Green
+    }
 }
 Function Show-WindowsGPUInfo {
     $gpus = Get-CimInstance -ClassName Win32_VideoController
@@ -1089,9 +1121,31 @@ Function Show-GameLaunchOptions {
         Return
     }
 
-    $localconfigData = Get-Content -Path $script:localconfigVDF -Raw
+    $localconfigData = $null
+
+    try
+    {
+        $localconfigData = Get-Content -Path $script:localconfigVDF -Raw -Encoding UTF8
+    }
+    catch {
+        Write-Host "[WARN] " -NoNewline -ForegroundColor Yellow
+        Write-Host "Error reading $script:localconfigVDF"
+        Write-Host "Skipping Launch Options check..."
+        return;
+    }
+
     $ParsedConfig = Read-VDF $localconfigData
-    $HD2ConfigData = $ParsedConfig["UserLocalConfigStore"]["Software"]["Valve"]["Steam"]["apps"][$script:AppID.ToString()]
+    $KeyPath = @(
+        "UserLocalConfigStore",
+        "Software",
+        "Valve",
+        "Steam",
+        "apps",
+        $script:AppID.ToString()
+    )
+
+    $HD2ConfigData = Get-VDFValue -Root $ParsedConfig -Path $KeyPath
+
     if($null -eq $HD2ConfigData)
     {
         Write-Host "Could not locate Helldivers 2 data in $script:localconfigVDF." -ForegroundColor Yellow
@@ -1187,7 +1241,7 @@ Function Test-AVX2 {
 Function Get-MemorySpeed {
     # RAM Speed
     $linepattern = '^Memory Frequency.*$'
-    $freqpattern = '((?=\d)\d+(?:\.\d+))\s*MHz'
+    $freqpattern = '(\d{4}(?:\.\d+)?)\s*MHz'
     # Find and display lines matching the pattern
     $match = $script:HardwareInfoText | Select-String -Pattern $linepattern
     If ($match) {
@@ -1484,7 +1538,7 @@ Function Test-Programs {
     [PSCustomObject]@{ProgramName = 'iCue'; RecommendedVersion = '100.100'; Installed = $false; InstalledVersion = '0.0.0'; Notes = 'Outdated versions are known to cause issues.' }
     [PSCustomObject]@{ProgramName = 'Lunar Client'; RecommendedVersion = '100.100'; Installed = $false; InstalledVersion = '0.0.0'; Notes = 'Exit Lunar Client before launching HD2 to prevent connectivity issues.' }
     [PSCustomObject]@{ProgramName = 'Medal'; RecommendedVersion = '100.100'; Installed = $false; InstalledVersion = '0.0.0'; Notes = 'Can cause slowdowns, crashes, etc. Turn off/Disable/uninstall.' }
-    [PSCustomObject]@{ProgramName = 'Microsoft GameInput'; RecommendedVersion = '10.1.26100.6879'; Installed = $false; InstalledVersion = '0.0.0'; Notes = 'This is an old version of GameInput. Crashes with Wwise audio component of HD2 & other games.' }
+    [PSCustomObject]@{ProgramName = 'Microsoft GameInput'; RecommendedVersion = '3.2.138.0'; Installed = $false; InstalledVersion = '0.0.0'; Notes = 'This is an old version of GameInput. Crashes with Wwise audio component of HD2 & other games.' }
 	[PSCustomObject]@{ProgramName = 'MSI Afterburner'; RecommendedVersion = '4.6.5'; Installed = $false; InstalledVersion = '0.0.0'; Notes = 'Outdated versions cause crashing & performance issues.' }
     [PSCustomObject]@{ProgramName = 'Mullvad VPN'; RecommendedVersion = '100.100'; Installed = $false; InstalledVersion = '0.0.0'; Notes = 'Causes connection issues. Recommend uninstall or disable in DEVICE MANAGER.' }
     [PSCustomObject]@{ProgramName = 'Nahimic'; RecommendedVersion = '100.100'; Installed = $false; InstalledVersion = '0.0.0'; Notes = 'Myriad of issues. Recommend removing all devices and services.' }
@@ -1496,6 +1550,7 @@ Function Test-Programs {
     [PSCustomObject]@{ProgramName = 'Razer Cortex'; RecommendedVersion = '100.100'; Installed = $false; InstalledVersion = '0.0.0'; Notes = 'Causes severe performance issues. Must disable/uninstall.' }
     [PSCustomObject]@{ProgramName = 'Ryzen Master'; RecommendedVersion = '2.14.2.3341'; Installed = $false; InstalledVersion = '0.0.0'; Notes = 'Known to cause RAM leaks & general issues. Recommend uninstalling.' }
     [PSCustomObject]@{ProgramName = 'Samsung Magician'; RecommendedVersion = '8.1'; Installed = $false; InstalledVersion = '0.0.0'; Notes = 'Outdated versions break connectivity completely.' }
+	[PSCustomObject]@{ProgramName = 'SmartByte Drivers and Services'; RecommendedVersion = '100.100'; Installed = $false; InstalledVersion = '0.0.0'; Notes = 'Inteferes with network traffic priorities. May cause connection issues.' }
     [PSCustomObject]@{ProgramName = 'Surfshark'; RecommendedVersion = '100.100'; Installed = $false; InstalledVersion = '0.0.0'; Notes = 'Will prevent connectivity. Recommend uninstall or disable IN DEVICE MANAGER.' }
     [PSCustomObject]@{ProgramName = 'Wallpaper Engine'; Installed = $false; RecommendedVersion = '100.100'; InstalledVersion = '0.0.0'; Notes = 'Can crash AMD GPUs in some instances. If setup improperly, can limit FPS of games.' }
     [PSCustomObject]@{ProgramName = 'Wargaming.net Game Center'; Installed = $false; RecommendedVersion = '100.100'; InstalledVersion = '0.0.0'; Notes = 'Reported to cause issues.' }
@@ -1518,7 +1573,15 @@ Function Test-Programs {
             }
         }
     }
-
+	# MSI AI LAN Manager checks
+	$regPath = 'HKLM:\SOFTWARE\WOW6432Node\MSI\MSI Center\Component\LAN Manager'
+	$exePath = (Join-Path "$env:ProgramFiles (x86)" 'MSI\MSI Center\LAN Manager\MSI_LAN_Manager_Tool.exe')
+	If (Test-Path -LiteralPath $regPath) {
+	    If (Test-Path -LiteralPath $exePath -PathType Leaf) {
+	        Write-Host "$([Environment]::NewLine)⚠️ MSI AI LAN Manager module in MSI Center is installed!" -ForegroundColor Yellow
+	        Write-Host 'To prevent connectivity issues, open MSI Center and uninstall AI LAN Manager.' -ForegroundColor Cyan
+	    }
+	}
     $bool = $false
     ForEach ($program in $ProblematicPrograms) {
         ForEach ($installedApp in $script:InstalledProgramsList) {
@@ -1607,27 +1670,44 @@ Function Test-SystemClockAccuracy {
         }
     }
 }
-Function Test-Firewall {
-    # Cast as array due to PowerShell returning object (no count property) if one rule, but array if two rules
-    [array]$HD2FirewallRules = Get-NetFirewallRule -Action Allow -Enabled True -Direction Inbound | Where-Object DisplayName -In ("Helldivers" + [char]0x2122 + " 2"), "Helldivers 2"
-    If ($null -eq $HD2FirewallRules) {
+Function Test-Firewall
+{
+    $HD2FirewallRuleName = "Helldivers$([char]0x2122) 2"
+
+    try
+    {
+        $HD2FirewallApplicationFilters = Get-NetFirewallApplicationFilter -Program (Join-Path -Path $script:AppInstallPath -ChildPath "bin\helldivers2.exe") -ErrorAction SilentlyContinue   
+    }
+    catch
+    { 
         $script:Tests.FirewallRules.TestPassed = $false
+        return
     }
-    Else {
-        $script:Tests.FirewallRules.Rules[0].PassedTest = $false
-        $script:Tests.FirewallRules.Rules[1].PassedTest = $false
-        ForEach ( $rule in $HD2FirewallRules) {
-            If ( $rule.Enabled -and (($rule | Get-NetFirewallPortFilter).Protocol -eq 'TCP')) {
-                $script:Tests.FirewallRules.Rules[0].PassedTest = $true
+
+    foreach ($filter in $HD2FirewallApplicationFilters)
+    {
+        if($null -eq $filter) { continue }
+        $associatedRule = Get-NetFirewallRule -AssociatedNetFirewallApplicationFilter $filter
+        if($null -eq $associatedRule) { continue }
+
+        if($associatedRule.Action -eq 'Allow' -and $associatedRule.Direction -eq 'Inbound' -and $associatedRule.Enabled -eq $true)
+        {
+            $ruleProtocol = ($associatedRule | Get-NetFirewallPortFilter).Protocol
+            $ruleTestEntry = switch ($ruleProtocol) 
+            {
+                "TCP" { $script:Tests.FirewallRules.Rules[0] }
+                "UDP" { $script:Tests.FirewallRules.Rules[1] }
+                Default {}
             }
-            If ( $rule.Enabled -and (($rule | Get-NetFirewallPortFilter).Protocol -eq 'UDP')) {
-                $script:Tests.FirewallRules.Rules[1].PassedTest = $true
-            }
-        }
-        If ( $script:Tests.FirewallRules.Rules[0].PassedTest -eq $true -and $script:Tests.FirewallRules.Rules[1].PassedTest -eq $true) {
-            $script:Tests.FirewallRules.TestPassed = $true
+            
+            $ruleTestEntry.PassedTest = $true
+            $ruleTestEntry.CorrectName = $associatedRule.DisplayName -eq $HD2FirewallRuleName
         }
     }
+
+    $allTestsPassed = -not ($script:Tests.FirewallRules.Rules | Where-Object { $_.PassedTest -ne $true })
+    $allNamesCorrect = -not ($script:Tests.FirewallRules.Rules | Where-Object { $_.CorrectName -ne $true })
+    $script:Tests.FirewallRules.TestPassed = $allTestsPassed -and $allNamesCorrect
 }
 Function Test-CRL {
     # Adapted from: https://stackoverflow.com/questions/11531068/powershell-capturing-standard-out-and-error-with-process-object
@@ -2133,22 +2213,29 @@ Function Test-FreeDiskSpace {
         $parts = $df -split "\s+"
         $free = [double]$parts[3]
     }
-    $script:Tests.FreeDiskSpace.TestPassed = ($free -gt 150GB)
+    $script:Tests.FreeDiskSpace.TestPassed = ($free -gt 30GB)
 }
 Function Test-USBGameDrive {
-    If ($script:DetectedOS -eq 'Windows') {
-        $GameVolume = Get-Volume -DriveLetter (Split-Path $script:AppInstallPath -Qualifier).TrimEnd(":") -ErrorAction SilentlyContinue
-        $GamePhysicalDisk = $GameVolume | Get-Partition -ErrorAction SilentlyContinue | Get-Disk -ErrorAction SilentlyContinue | Get-PhysicalDisk -ErrorAction SilentlyContinue
-        $isUSB = ($GamePhysicalDisk -and $GamePhysicalDisk.BusType -eq "USB")
+    $isUSB = switch ($script:DetectedOS)
+    {
+        "Windows" 
+        {
+            $GameVolume = Get-Volume -DriveLetter (Split-Path $script:AppInstallPath -Qualifier).TrimEnd(":") -ErrorAction SilentlyContinue
+            $GamePhysicalDisk = $GameVolume | Get-Partition -ErrorAction SilentlyContinue | Get-Disk -ErrorAction SilentlyContinue | Get-PhysicalDisk -ErrorAction SilentlyContinue
+            $GamePhysicalDisk -and ($GamePhysicalDisk.PSObject.Properties.Name -contains 'BusType') -and ($GamePhysicalDisk.BusType -eq "USB")
+        }
+
+        "Linux"
+        {
+            $mount = (df -P "$script:AppInstallPath" | Select-Object -Skip 1).Split()[5]
+            $device = (df "$mount" | Select-Object -Skip 1).Split()[0] -replace "^/dev/", ""
+            # Check bus type via sysfs
+            $busPath = "/sys/block/$device/device"
+            Test-Path "$busPath/usb"
+        }
+        Default { $false }
     }
 
-    ElseIf ($script:DetectedOS -eq 'Linux') {
-        $mount = (df -P "$script:AppInstallPath" | Select-Object -Skip 1).Split()[5]
-        $device = (df "$mount" | Select-Object -Skip 1).Split()[0] -replace "^/dev/", ""
-        # Check bus type via sysfs
-        $busPath = "/sys/block/$device/device"
-        $isUSB = (Test-Path "$busPath/usb")
-    }
     $script:Tests.USBGameDrive.TestPassed = (-not $isUSB)
 }
 
@@ -2205,28 +2292,46 @@ Function Test-FasterDriveAvailable {
 
 Function Test-BetaBranch
 {
-    $pattern = '(?s)"UserConfig"\s*\{.*?"BetaKey"\s*"([^"]+)"'
-    $GameData = Get-Content -Path $script:AppManifestPath -Raw
-
-    $script:Tests.BetaBranchActive.TestPassed = $true
-    If($GameData -match $pattern)
-    {
-        $script:Tests.BetaBranchActive.TestPassed = $false
-        $script:Tests.BetaBranchActive.selectedBranch = $Matches[1]
+    if(-Not (Test-Path $script:AppManifestPath))
+    { 
+        $script:Tests.BetaBranchActive.TestPassed = $true
+        return
     }
+    $AppManifestContent = Get-Content -Path $script:AppManifestPath -Raw
+
+    $ParsedAppManifest = Read-VDF $AppManifestContent -Encoding UTF8
+    $SelectedBetaPath = @(
+        "AppState",
+        "UserConfig",
+        "BetaKey"
+    )
+
+    $SelectedBetaBranch = Get-VDFValue -Root $ParsedAppManifest -Path $SelectedBetaPath
+    $script:Tests.BetaBranchActive.TestPassed = ($null -eq $SelectedBetaBranch -or $SelectedBetaBranch.ToLower() -eq "public")
+    $script:Tests.BetaBranchActive.selectedBranch = $SelectedBetaBranch
 }
 Function Get-DiskScore($disk)
 {
+    if (-not $disk) { return 0 }
     $score = 0
 
-    Switch ($disk.BusType)
+    $busType = $null
+    if (Get-Member -InputObject $disk -Name 'BusType' -ErrorAction SilentlyContinue)
+    {
+        $busType = $disk.BusType
+    }
+
+    Switch ($busType)
     {
         "NVMe"  { $score += 2 }
         "SATA"  { $score += 1 }
         default { $score += 0 }
     }
 
-    If ($disk.MediaType -eq "SSD") { $score += 1 }
+    if ((Get-Member -InputObject $disk -Name 'BusType') -and $disk.MediaType -eq "SSD")
+    {
+        $score += 1
+    }
     Return $score
 }
 Function Convert-Size($bytes) {
@@ -2349,12 +2454,13 @@ Function Switch-FullScreenOptimizations
 }
 Function Reset-HostabilityKey {
     $basePath = Get-HD2ConfigPath
-    If (-not $basePath) {
+    $configPath = if ($basePath) { Join-Path $basePath "user_settings.config" }
+    if(-Not $basePath -Or -Not (Test-Path $configPath))
+    {
         Write-Host '[WARN] ' -NoNewLine -ForegroundColor Yellow
-        Write-Host 'Helldivers 2 config folder not found.' -ForegroundColor Cyan
-        Return
+        Write-Host 'Helldivers 2 config file not found.' -ForegroundColor Cyan
+        return
     }
-    $configPath = Join-Path $basePath "user_settings.config"
     Try { $OriginalHash = Get-FileHash -Path $configPath -Algorithm SHA256}
     Catch {
         Write-Host '[WARN] ' -NoNewLine -ForegroundColor Yellow
@@ -2374,8 +2480,12 @@ Function Reset-HostabilityKey {
 }
 Function Get-VSyncConfig {
     $basePath = Get-HD2ConfigPath
-    If (-not $basePath) { Return }
-    $configPath = Join-Path $basePath "user_settings.config"
+    $configPath = if ($basePath) { Join-Path $basePath "user_settings.config" }
+    if(-Not $basePath -Or -Not (Test-Path $configPath))
+    {
+        $script:Tests.VSyncDisabled.TestPassed = $true
+        Return
+    }
     Try {
             If ( Select-String $configPath -Pattern "vsync = false" -Quiet ) {
                 $script:Tests.VSyncDisabled.TestPassed = $true
@@ -2390,13 +2500,14 @@ Function Get-VSyncConfig {
 }
 Function Get-GameResolution {
     $basePath = Get-HD2ConfigPath
-    If (-not $basePath) {
+    $configPath = if ($basePath) { Join-Path $basePath "user_settings.config" }
+
+    if(-Not $basePath -Or -Not (Test-Path $configPath))
+    {
         $script:Tests.GameResolution.TestPassed = $false
         $script:Tests.RenderResolution.TestPassed = $false
         Return
     }
-
-    $configPath = Join-Path $basePath "user_settings.config"
 
     Try {
         $lines = Get-Content $configPath
@@ -3093,6 +3204,49 @@ Function Read-VDF {
 
     return $root
 }
+function Get-VDFValue {
+    param(
+        [hashtable]$Root,
+        [string[]]$Path
+    )
+
+    $current = $Root
+
+    foreach ($key in $Path) {
+        if ($current -isnot [System.Collections.IDictionary]) {
+            return $null
+        }
+
+        if (-not $current.Contains($key)) {
+            return $null
+        }
+
+        $current = $current[$key]
+    }
+
+    return $current
+}
+function Split-VDFPath
+{
+    param([string]$Path)
+
+    $regex = '"((?:\\.|[^"\\])*)"|[^.]+'
+    $parts = @()
+
+    foreach ($m in [regex]::Matches($Path, $regex))
+    {
+        if ($m.Groups[1].Success)
+        {
+            $parts += [regex]::Unescape($m.Groups[1].Value)
+        }
+        else
+        {
+            $parts += $m.Value
+        }
+    }
+
+    return $parts
+}
 Write-Host 'Locating Steam...' -ForegroundColor Cyan
 # Set AppID
 $script:AppID = "553850"
@@ -3163,7 +3317,7 @@ switch ($script:DetectedOS)
     "Windows"
     {
         $LibraryPath = Join-Path $script:SteamPath -ChildPath "steamapps\libraryfolders.vdf"
-        $LibraryData = Get-Content -Path $LibraryPath -Raw
+        $LibraryData = Get-Content -Path $LibraryPath -Raw -Encoding UTF8
         $ParsedLibrary = Read-VDF -Content $LibraryData
 
         ForEach($libraryEntry in $ParsedLibrary["libraryfolders"].GetEnumerator())
@@ -3177,7 +3331,7 @@ switch ($script:DetectedOS)
             $GameDataContent = $null
             Try
             {
-                $GameDataContent = Get-Content -Path $GameDataPath -Raw
+                $GameDataContent = Get-Content -Path $GameDataPath -Raw -Encoding UTF8 -ErrorAction Stop
             }
             Catch
             {
@@ -3185,6 +3339,8 @@ switch ($script:DetectedOS)
                 Write-Host "If you moved Helldivers 2 without telling Steam, this can cause problems." -ForegroundColor Cyan
                 Write-Host "See https://help.steampowered.com/en/faqs/view/4578-18A7-C819-8620." -ForegroundColor Cyan
                 Write-Host "Several options will crash the script including mod deletion, resetting GameGuard, Full Screen Optimizations toggle and setting GPU options." -ForegroundColor Yellow
+                Write-Host "Press [SPACEBAR] to continue..."
+                pause
                 $script:AppInstallPath = $false
                 break
             }
@@ -3202,7 +3358,8 @@ switch ($script:DetectedOS)
         $script:AppIDFound = $true
         $script:AppInstallPath = Join-Path $script:SteamPath -ChildPath "steamapps\common/Helldivers 2"
         $script:AppManifestPath = Join-Path $script:SteamPath -ChildPath "\steamapps\appmanifest_$script:AppID.acf"
-        $GameData = Get-Content -Path $script:AppManifestPath
+        $GameData = Get-Content -Path $script:AppManifestPath -Encoding UTF8
+        $ParsedGameData = Read-VDF $GameData
         $script:BuildID = $ParsedGameData["AppState"]["buildid"]
     }
 
